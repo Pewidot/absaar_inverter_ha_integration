@@ -1,0 +1,4 @@
+sensor:
+  - platform: absaar
+    username: "YOUR_ABSAAR_EMS_USERNAME"
+    password: "ABSAAR_EMS_PASSWORD"
