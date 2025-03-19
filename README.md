@@ -1,5 +1,5 @@
-# absaar_inverter_ha_integration
-Integration for Inverters used in the "ABSAAR EMS App" for use in HomeAssistant
+# Integration for Inverters used in the "ABSAAR EMS App" for use in HomeAssistant
+
 A simple Absaar Integration for use with the Absaar EMS App
 It updates every 2 Minutes (added so you wont get blocked for spamming)
 Just write an issue if any information is missing inside HA, nearly everything is accessable.
