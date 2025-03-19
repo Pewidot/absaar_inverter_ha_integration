@@ -119,7 +119,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
             inverter = inverter_data["rows"][0]
 
             # Hauptsensor für Inverter-Leistung
-            entities.append(AbsaarInverterSensor(f"{station['powerName']} Leistung", power_id, inverter_id, token, "acPower", "W"))
+            entities.append(AbsaarInverterSensor(f"{station['powerName']} Power", power_id, inverter_id, token, "acPower", "W"))
 
             # Weitere Sensoren für wichtige Werte
             for key, unit in [
