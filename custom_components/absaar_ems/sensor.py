@@ -100,6 +100,10 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         
         # ✅ Hole dailyPowerGeneration aus den Stations-Daten
         daily_power = station["dailyPowerGeneration"]
+        # ✅ Create the sensor for total production
+        total_power = station["totalPowerGeneration"]
+        entities.append(AbsaarStationSensor(f"{station['powerName']} totalPowerGeneration", power_id, token, total_power, "kWh"))
+
         
         # ✅ Erstelle den Sensor für die tägliche Produktion
         entities.append(AbsaarStationSensor(f"{station['powerName']} dailyPowerGeneration", power_id, token, daily_power, "kWh"))
@@ -128,6 +132,12 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
                 ("pv1Power", "W"),
                 ("pv2Power", "W"),
                 ("temperature", "°C"),
+                ("pv1Voltage", "V"),
+                ("pv1Electric", "A"),
+                ("pv2Voltage", "V"),
+                ("pv2Electric", "A"),
+                ("acElectric", "A"),
+                ("inPower", "W"),
             ]:
                 entities.append(AbsaarInverterSensor(f"{station['powerName']} {key}", power_id, inverter_id, token, key, unit))
 
