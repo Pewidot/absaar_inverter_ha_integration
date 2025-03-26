@@ -98,14 +98,14 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     for station in stations.get("rows", []):
         power_id = station["powerId"]
         
-        # ✅ Hole dailyPowerGeneration aus den Stations-Daten
+        # Hole dailyPowerGeneration aus den Stations-Daten
         daily_power = station["dailyPowerGeneration"]
-        # ✅ Create the sensor for total production
+        # Create the sensor for total production
         total_power = station["totalPowerGeneration"]
         entities.append(AbsaarStationSensor(f"{station['powerName']} totalPowerGeneration", power_id, token, total_power, "kWh"))
 
         
-        # ✅ Erstelle den Sensor für die tägliche Produktion
+        # Erstelle den Sensor für die tägliche Produktion
         entities.append(AbsaarStationSensor(f"{station['powerName']} dailyPowerGeneration", power_id, token, daily_power, "kWh"))
         
         collectors = get_collectors(power_id, token)
