@@ -142,7 +142,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
                 ("acFrequency", "Hz"),
                 ("pv1Power", "W"),
                 ("pv2Power", "W"),
-                ("temperature", "-¦C"),
+                ("temperature", "C"),
                 ("pv1Voltage", "V"),
                 ("pv1Electric", "A"),
                 ("pv2Voltage", "V"),
