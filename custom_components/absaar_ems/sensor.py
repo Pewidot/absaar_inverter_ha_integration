@@ -210,6 +210,7 @@ class AbsaarStationSensor(SensorEntity):
 
         if not data or "rows" not in data or not data["rows"]:
             _LOGGER.warning("No station data received for ID %s", self._power_id)
+            self._attr_native_value = None
             self._attr_available = False
             return
 
