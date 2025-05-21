@@ -2,7 +2,7 @@
   "domain": "absaar",
   "name": "Absaar Inverter",
   "documentation": "https://www.home-assistant.io/integrations/absaar",
-  "requirements": [],
+  "requirements": ["cachetools"],
   "dependencies": [],
   "codeowners": ["@Pewidot"],
   "version": "1.0"
