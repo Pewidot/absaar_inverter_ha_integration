@@ -125,11 +125,7 @@ class AbsaarStationSensor(CoordinatorEntity, SensorEntity):
 
         for station in self.coordinator.data["stations"]:
             if station["power_id"] == self._power_id:
-                value = station.get(self._sensor_key.replace("Generation", "_generation"))
-                if value is None:
-                    # Try with the original key
-                    value = station.get(self._sensor_key)
-                return value
+                return station.get(self._sensor_key)
 
         return None
 

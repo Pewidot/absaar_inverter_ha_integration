@@ -1,4 +1,3 @@
-sensor:
-  - platform: absaar
-    username: "YOUR_ABSAAR_EMS_USERNAME"
-    password: "ABSAAR_EMS_PASSWORD"
+# YAML configuration is no longer supported.
+# Please set up the Absaar Inverter integration through the Home Assistant UI:
+#   Settings -> Devices & Services -> Add Integration -> Absaar Inverter
