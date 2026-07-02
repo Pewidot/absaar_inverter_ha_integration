@@ -38,6 +38,13 @@ QUERY_SUFFIX = bytes.fromhex("000000000000000811040000003c8bf2")
 # Anything larger than this in the length field is a corrupt frame.
 MAX_FRAME_LEN = 1024
 
+# The datalogger's WiFi link is often weak: HTTP responses break off midway
+# and the TCP tunnel drops and reconnects. Retry HTTP reads, and keep entities
+# available for a grace period so quick reconnects don't flap them.
+HTTP_ATTEMPTS = 3
+HTTP_RETRY_WAIT = 10
+OFFLINE_GRACE = 90
+
 # offset in the DATA frame -> (key, divisor)
 FIELDS = {
     44: ("pv1_voltage", 10),
@@ -95,6 +102,9 @@ class AbsaarLocalHub:
         self._server: asyncio.Server | None = None
         self._ip_task: asyncio.Task | None = None
         self._writer: asyncio.StreamWriter | None = None
+        self._offline_timer = None
+        self._check_failures = 0
+        self._verified_target: str | None = None
 
     @property
     def signal(self) -> str:
@@ -117,6 +127,7 @@ class AbsaarLocalHub:
 
     async def async_stop(self) -> None:
         """Stop the server and background tasks."""
+        self._cancel_offline_timer()
         if self._ip_task:
             self._ip_task.cancel()
             self._ip_task = None
@@ -143,7 +154,9 @@ class AbsaarLocalHub:
         self._writer = writer
 
         buf = b""
-        timeout = max(self._poll_delay + 10, 30)
+        # Generous on purpose: a weak WiFi link may stall for a while without
+        # being dead, and TCP retransmits bridge short dropouts.
+        timeout = max(self._poll_delay + 30, 60)
         try:
             while True:
                 try:
@@ -161,7 +174,9 @@ class AbsaarLocalHub:
         finally:
             if self._writer is writer:
                 self._writer = None
-                self._set_online(False)
+                # Don't flap entities on a quick reconnect; go offline only
+                # if no data arrives within the grace period.
+                self._schedule_offline()
             writer.close()
 
     async def _process_buffer(
@@ -218,6 +233,7 @@ class AbsaarLocalHub:
             self.data.get("pv1_power", 0) + self.data.get("pv2_power", 0)
         )
         self.last_seen = dt_util.utcnow()
+        self._cancel_offline_timer()
         self._set_online(True)
         self._notify()
 
@@ -230,6 +246,19 @@ class AbsaarLocalHub:
         if self.online != online:
             self.online = online
             self._notify()
+
+    @callback
+    def _schedule_offline(self) -> None:
+        self._cancel_offline_timer()
+        self._offline_timer = self._hass.loop.call_later(
+            OFFLINE_GRACE, self._set_online, False
+        )
+
+    @callback
+    def _cancel_offline_timer(self) -> None:
+        if self._offline_timer is not None:
+            self._offline_timer.cancel()
+            self._offline_timer = None
 
     @callback
     def _notify(self) -> None:
@@ -252,18 +281,45 @@ class AbsaarLocalHub:
                     await self._hass.async_add_executor_job(
                         self._check_datalogger_target
                     )
+                    self._check_failures = 0
                 except asyncio.CancelledError:
                     raise
                 except Exception as err:  # noqa: BLE001 - keep the loop alive
-                    _LOGGER.warning("Datalogger IP check failed: %s", err)
+                    # A weak WiFi link fails here routinely; warn on the
+                    # first failure and then only every tenth, else debug.
+                    self._check_failures += 1
+                    if self._check_failures == 1 or self._check_failures % 10 == 0:
+                        _LOGGER.warning(
+                            "Datalogger IP check failed (%s in a row): %s",
+                            self._check_failures, err,
+                        )
+                    else:
+                        _LOGGER.debug("Datalogger IP check failed: %s", err)
             await asyncio.sleep(self._ip_check_interval)
 
     def _check_datalogger_target(self) -> None:
         auth = HTTPBasicAuth(self._datalogger_username, self._datalogger_password)
-        # The module's web server is slow; give it more headroom than usual.
-        resp = requests.get(
-            f"{self._datalogger_url}/port_en.html", auth=auth, timeout=60
-        )
+        # The module's web server is slow and its WiFi link weak: responses
+        # time out or break off midway (IncompleteRead). Retry a few times —
+        # against a flaky link retries help where longer timeouts cannot.
+        resp = None
+        last_err = None
+        for attempt in range(1, HTTP_ATTEMPTS + 1):
+            try:
+                resp = requests.get(
+                    f"{self._datalogger_url}/port_en.html", auth=auth, timeout=60
+                )
+                break
+            except requests.exceptions.RequestException as err:
+                last_err = err
+                _LOGGER.debug(
+                    "Settings page attempt %s/%s failed: %s",
+                    attempt, HTTP_ATTEMPTS, err,
+                )
+                if attempt < HTTP_ATTEMPTS:
+                    time.sleep(HTTP_RETRY_WAIT)
+        if resp is None:
+            raise last_err
         if resp.status_code != 200:
             _LOGGER.warning(
                 "Datalogger settings page returned HTTP %s, skipping IP check",
@@ -289,9 +345,16 @@ class AbsaarLocalHub:
 
         current = match.group(1)
         if current == target:
-            _LOGGER.debug("Datalogger destination IP is correct (%s)", current)
+            if self._verified_target != current:
+                self._verified_target = current
+                _LOGGER.info(
+                    "Datalogger destination verified: %s:%s", current, self._port
+                )
+            else:
+                _LOGGER.debug("Datalogger destination IP is correct (%s)", current)
             return
 
+        self._verified_target = None
         _LOGGER.warning(
             "Datalogger points at %s, re-pointing to %s and restarting it",
             current, target,
