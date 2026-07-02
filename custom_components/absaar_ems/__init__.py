@@ -4,12 +4,31 @@ from datetime import timedelta
 
 import homeassistant.util.dt as dt_util
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, Platform
+from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import (
+    CONF_CONNECTION_TYPE,
+    CONF_DATALOGGER_PASSWORD,
+    CONF_DATALOGGER_URL,
+    CONF_DATALOGGER_USERNAME,
+    CONF_IP_CHECK_INTERVAL,
+    CONF_LISTENER_IP,
+    CONF_POLL_DELAY,
+    CONF_SERIAL,
+    CONNECTION_TYPE_CLOUD,
+    CONNECTION_TYPE_LOCAL,
+    DEFAULT_DATALOGGER_PASSWORD,
+    DEFAULT_DATALOGGER_USERNAME,
+    DEFAULT_IP_CHECK_INTERVAL,
+    DEFAULT_POLL_DELAY,
+    DEFAULT_PORT,
+    DOMAIN,
+)
 from .api import AbsaarAPI
+from .local import AbsaarLocalHub
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,27 +66,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Absaar Inverter from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    username = entry.data[CONF_USERNAME]
-    password = entry.data[CONF_PASSWORD]
+    # Entries created before 2.0.0 have no connection_type and are cloud.
+    connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_CLOUD)
 
-    # Create API instance
-    api = AbsaarAPI(username, password)
+    if connection_type == CONNECTION_TYPE_LOCAL:
+        hub = AbsaarLocalHub(
+            hass,
+            entry.entry_id,
+            port=entry.data.get(CONF_PORT, DEFAULT_PORT),
+            serial=entry.data.get(CONF_SERIAL, ""),
+            poll_delay=entry.data.get(CONF_POLL_DELAY, DEFAULT_POLL_DELAY),
+            datalogger_url=entry.data.get(CONF_DATALOGGER_URL, ""),
+            datalogger_username=entry.data.get(
+                CONF_DATALOGGER_USERNAME, DEFAULT_DATALOGGER_USERNAME
+            ),
+            datalogger_password=entry.data.get(
+                CONF_DATALOGGER_PASSWORD, DEFAULT_DATALOGGER_PASSWORD
+            ),
+            listener_ip=entry.data.get(CONF_LISTENER_IP, ""),
+            ip_check_interval=entry.data.get(
+                CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL
+            ),
+        )
+        try:
+            await hub.async_start()
+        except OSError as err:
+            raise ConfigEntryNotReady(
+                f"Cannot listen on TCP port {hub.port}: {err}"
+            ) from err
 
-    # Authenticate
-    if not await hass.async_add_executor_job(api.authenticate):
-        _LOGGER.error("Failed to authenticate with Absaar API")
-        return False
+        hass.data[DOMAIN][entry.entry_id] = {"hub": hub}
+    else:
+        username = entry.data[CONF_USERNAME]
+        password = entry.data[CONF_PASSWORD]
 
-    # Create coordinator
-    coordinator = AbsaarDataUpdateCoordinator(hass, api)
+        # Create API instance
+        api = AbsaarAPI(username, password)
 
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
+        # Authenticate
+        if not await hass.async_add_executor_job(api.authenticate):
+            _LOGGER.error("Failed to authenticate with Absaar API")
+            return False
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        "coordinator": coordinator,
-        "api": api,
-    }
+        # Create coordinator
+        coordinator = AbsaarDataUpdateCoordinator(hass, api)
+
+        # Fetch initial data
+        await coordinator.async_config_entry_first_refresh()
+
+        hass.data[DOMAIN][entry.entry_id] = {
+            "coordinator": coordinator,
+            "api": api,
+        }
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -78,7 +128,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id)
+        stored = hass.data[DOMAIN].pop(entry.entry_id)
+        hub = stored.get("hub")
+        if hub is not None:
+            await hub.async_stop()
 
     return unload_ok
 

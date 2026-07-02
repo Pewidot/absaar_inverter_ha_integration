@@ -2,14 +2,20 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 
-A Home Assistant integration for Absaar EMS inverters and battery systems. This integration connects to the Absaar EMS cloud service (MINI-EMS is also supported) and provides real-time monitoring of your solar inverter system.
+A Home Assistant integration for Absaar EMS inverters and battery systems. Since version 2.0.0 you can choose per entry how Home Assistant connects to your inverter:
+
+- **Cloud**: through the Absaar EMS cloud service (MINI-EMS is also supported), using your app account.
+- **Local**: completely cloud-free — the inverter's WiFi datalogger connects directly to Home Assistant, which decodes the data itself. No account, no internet dependency, no stale cloud data.
+
+Existing installations keep working unchanged after upgrading: entries created before 2.0.0 continue as cloud connections. The choice appears when adding a new entry.
 
 ## Features
 
 - **GUI Configuration**: Easy setup through Home Assistant's UI
-- **Automatic Updates**: Polls data every 2 minutes to avoid API rate limits
+- **Cloud or Local**: Pick per entry — vendor cloud account or direct local connection
+- **Automatic Updates**: Cloud mode polls every 2 minutes; local mode receives pushed data every few seconds
 - **Comprehensive Data**: Exposes all available inverter metrics
-- **Battery Support**: Full support for Absaar battery systems
+- **Battery Support**: Full support for Absaar battery systems (cloud mode)
 - **Device Registry**: Properly registers devices in Home Assistant
 - **Proper Entity IDs**: Uses unique identifiers for all sensors
 
@@ -48,10 +54,27 @@ Before configuring the integration, you need:
 1. Go to **Settings** → **Devices & Services**
 2. Click **Add Integration**
 3. Search for **Absaar Inverter**
-4. Enter your Absaar EMS username and password
-5. Click **Submit**
+4. Choose **Cloud** or **Local**
 
-The integration will automatically discover your stations and inverters and create all sensors.
+#### Cloud mode
+
+Enter your Absaar EMS username and password and click **Submit**. The integration will automatically discover your stations and inverters and create all sensors.
+
+#### Local mode (cloud-free)
+
+In local mode the inverter's WiFi datalogger connects directly to Home Assistant on a TCP port (default 15444, the same port it normally uses toward the vendor cloud). The integration decodes the data itself — the Absaar servers are never contacted.
+
+For this to work the datalogger must be pointed at your Home Assistant IP. There are two ways:
+
+- **Automatic (recommended)**: enter the datalogger's web address (e.g. `http://192.168.1.50`) and its web login (default `admin`/`admin`) in the setup form. The integration checks periodically that the datalogger targets Home Assistant and corrects it if the app or a reset changed it.
+- **Manual**: open the datalogger's web interface yourself and set the TCP client destination to your Home Assistant IP and the chosen port, then leave the web address field empty.
+
+All other fields have sensible defaults. The inverter serial is auto-detected from the first connection.
+
+Notes on local mode:
+- The inverter is unpowered at night, so its sensors show *unavailable* until sunrise. The lifetime total keeps its last value, and the Energy Dashboard derives daily production from it — no daily counter from the cloud is needed (which also avoids the cloud's stale morning values).
+- Local mode has been tested with the GT800TL. Other models using the same datalogger protocol may work; battery-system metrics are currently cloud-only.
+- Cloud and local entries can exist side by side if you want to compare.
 
 ### Legacy YAML Configuration (Deprecated)
 
@@ -60,13 +83,22 @@ The old YAML configuration method is no longer supported. Please use the UI conf
 
 ## Available Sensors
 
+### Local Mode Sensors
+
+- **Total Energy** (kWh) — lifetime generation (use this in the Energy Dashboard; HA derives the daily value)
+- **AC Power / Voltage / Frequency** — current output
+- **PV1/PV2 Power, Voltage, Current** and **PV Total Power** — per-string DC input
+- **Status** — online/offline, with serial and last-seen time as attributes
+
+### Cloud Mode Sensors
+
 The integration creates the following sensors for each inverter/station:
 
-### Station Sensors
+#### Station Sensors
 - **Daily Power Generation** (kWh) - Total energy generated today
 - **Total Power Generation** (kWh) - Lifetime energy generation
 
-### Inverter Sensors
+#### Inverter Sensors
 - **AC Power** (W) - Current AC output power
 - **AC Voltage** (V) - AC output voltage
 - **AC Frequency** (Hz) - AC frequency
