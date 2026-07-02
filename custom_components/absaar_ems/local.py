@@ -78,7 +78,10 @@ class AbsaarLocalHub:
         self._entry_id = entry_id
         self._port = port
         self._poll_delay = max(int(poll_delay), 1)
-        self._datalogger_url = (datalogger_url or "").strip().rstrip("/")
+        url = (datalogger_url or "").strip().rstrip("/")
+        if url and not url.startswith(("http://", "https://")):
+            url = f"http://{url}"
+        self._datalogger_url = url
         self._datalogger_username = datalogger_username
         self._datalogger_password = datalogger_password
         self._listener_ip = (listener_ip or "").strip()
@@ -238,18 +241,28 @@ class AbsaarLocalHub:
 
     async def _ip_check_loop(self) -> None:
         while True:
-            try:
-                await self._hass.async_add_executor_job(self._check_datalogger_target)
-            except asyncio.CancelledError:
-                raise
-            except Exception as err:  # noqa: BLE001 - keep the loop alive
-                _LOGGER.warning("Datalogger IP check failed: %s", err)
+            # While the datalogger is connected its target is evidently
+            # correct — and the HF-LPT230's tiny web server usually stops
+            # answering while its TCP tunnel is busy, so probing it now would
+            # only produce noise. Check only while we get no data.
+            if self.online:
+                _LOGGER.debug("Datalogger connected, skipping IP check")
+            else:
+                try:
+                    await self._hass.async_add_executor_job(
+                        self._check_datalogger_target
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:  # noqa: BLE001 - keep the loop alive
+                    _LOGGER.warning("Datalogger IP check failed: %s", err)
             await asyncio.sleep(self._ip_check_interval)
 
     def _check_datalogger_target(self) -> None:
         auth = HTTPBasicAuth(self._datalogger_username, self._datalogger_password)
+        # The module's web server is slow; give it more headroom than usual.
         resp = requests.get(
-            f"{self._datalogger_url}/port_en.html", auth=auth, timeout=10
+            f"{self._datalogger_url}/port_en.html", auth=auth, timeout=60
         )
         if resp.status_code != 200:
             _LOGGER.warning(
@@ -297,13 +310,13 @@ class AbsaarLocalHub:
                 "net_setting_ip": target,
                 "net_setting_to": "300",
             },
-            auth=auth, headers=headers, timeout=10,
+            auth=auth, headers=headers, timeout=60,
         )
         time.sleep(2)
         requests.post(
             f"{self._datalogger_url}/do_cmd_en.html",
             data={"HF_PROCESS_CMD": "RESTART"},
-            auth=auth, headers=headers, timeout=10,
+            auth=auth, headers=headers, timeout=60,
         )
 
     def _detect_listener_ip(self) -> str | None:
