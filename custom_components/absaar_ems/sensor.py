@@ -1,6 +1,7 @@
 """Sensor platform for Absaar Inverter integration."""
 import logging
 
+import homeassistant.util.dt as dt_util
 from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
@@ -11,9 +12,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_SERIAL, DOMAIN
+
+# A single reading can never plausibly add more than this to the daily
+# counter; larger deltas are counter glitches (e.g. re-initialisation).
+MAX_PLAUSIBLE_DELTA_KWH = 50.0
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -254,6 +260,7 @@ def _setup_local_entities(
             SensorStateClass.TOTAL_INCREASING,
         )
     )
+    entities.append(AbsaarLocalDailyEnergySensor(hub, config_entry, id_base))
     entities.append(AbsaarLocalStatusSensor(hub, config_entry, id_base))
     async_add_entities(entities)
 
@@ -351,6 +358,112 @@ class AbsaarLocalEnergySensor(AbsaarLocalSensor, RestoreSensor):
     def available(self) -> bool:
         """Available as soon as any total is known."""
         return self.native_value is not None
+
+
+class AbsaarLocalDailyEnergySensor(RestoreSensor):
+    """Daily production derived locally from the lifetime total.
+
+    Accumulates the increase of total_energy over the day and resets at
+    local midnight — the equivalent of the cloud's Daily Power Generation,
+    but computed here and therefore immune to the cloud's stale morning
+    values. Negative jumps of the (16 bit) lifetime counter are skipped
+    rather than booked, so a counter wrap can't corrupt the day.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(self, hub, config_entry: ConfigEntry, id_base: str):
+        """Initialize the sensor."""
+        self._hub = hub
+        self._entry = config_entry
+        self._attr_name = "Daily Energy"
+        self._attr_unique_id = f"{id_base}_daily_energy"
+        self._attr_native_unit_of_measurement = "kWh"
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+        self._daily = 0.0
+        self._day = None
+        self._last_total = None
+
+    async def async_added_to_hass(self):
+        """Restore the day's accumulator and subscribe to updates."""
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            try:
+                self._daily = float(last_state.state)
+            except (TypeError, ValueError):
+                self._daily = 0.0
+            day = last_state.attributes.get("day")
+            self._day = dt_util.parse_date(day) if day else None
+            last_total = last_state.attributes.get("last_total")
+            try:
+                self._last_total = (
+                    float(last_total) if last_total is not None else None
+                )
+            except (TypeError, ValueError):
+                self._last_total = None
+        # A restart across midnight must not carry yesterday's count over.
+        if self._day != dt_util.now().date():
+            self._day = dt_util.now().date()
+            self._daily = 0.0
+
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, self._hub.signal, self._handle_update)
+        )
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass, self._handle_midnight, hour=0, minute=0, second=0
+            )
+        )
+
+    @callback
+    def _handle_update(self):
+        total = self._hub.data.get("total_energy")
+        if total is None:
+            return
+        today = dt_util.now().date()
+        if self._day != today:
+            self._day = today
+            self._daily = 0.0
+        if self._last_total is not None:
+            delta = total - self._last_total
+            if 0 <= delta <= MAX_PLAUSIBLE_DELTA_KWH:
+                self._daily += delta
+        self._last_total = total
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_midnight(self, _now):
+        """Reset the daily counter even while the inverter sleeps."""
+        self._day = dt_util.now().date()
+        self._daily = 0.0
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self):
+        """Return today's accumulated production."""
+        return round(self._daily, 2)
+
+    @property
+    def extra_state_attributes(self):
+        """Persist accumulator internals for restore after restart."""
+        return {
+            "day": self._day.isoformat() if self._day else None,
+            "last_total": self._last_total,
+        }
+
+    @property
+    def device_info(self):
+        """Return device information about this entity."""
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": self._entry.title,
+            "manufacturer": "Absaar",
+            "model": "Inverter (local)",
+        }
 
 
 class AbsaarLocalStatusSensor(SensorEntity):

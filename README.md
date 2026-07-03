@@ -87,7 +87,8 @@ The old YAML configuration method is no longer supported. Please use the UI conf
 
 ### Local Mode Sensors
 
-- **Total Energy** (kWh) — lifetime generation (use this in the Energy Dashboard; HA derives the daily value)
+- **Total Energy** (kWh) — lifetime generation (use this in the Energy Dashboard)
+- **Daily Energy** (kWh) — today's production, derived locally from the lifetime total; resets at local midnight and survives restarts
 - **AC Power / Voltage / Frequency** — current output
 - **PV1/PV2 Power, Voltage, Current** and **PV Total Power** — per-string DC input
 - **Status** — online/offline, with serial and last-seen time as attributes
