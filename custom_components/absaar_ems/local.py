@@ -161,17 +161,31 @@ class AbsaarLocalHub:
         buf = b""
         # Generous on purpose: a weak WiFi link may stall for a while without
         # being dead, and TCP retransmits bridge short dropouts.
-        timeout = max(self._poll_delay + 30, 60)
+        data_timeout = max(self._poll_delay + 30, 60)
+        # Short first wait: some firmware sends no login frame and expects
+        # the server to query first.
+        timeout = 15
+        proactive_sent = False
         try:
             while True:
                 try:
                     chunk = await asyncio.wait_for(reader.read(1024), timeout=timeout)
                 except asyncio.TimeoutError:
+                    if not proactive_sent:
+                        proactive_sent = True
+                        timeout = data_timeout
+                        _LOGGER.debug(
+                            "No login from %s, querying proactively", peer
+                        )
+                        writer.write(self._build_query())
+                        await writer.drain()
+                        continue
                     _LOGGER.debug("Datalogger %s timed out", peer)
                     break
                 if not chunk:
                     _LOGGER.debug("Datalogger %s disconnected", peer)
                     break
+                timeout = data_timeout
                 buf += chunk
                 buf = await self._process_buffer(buf, writer)
         except (ConnectionResetError, OSError) as err:
@@ -389,10 +403,18 @@ class AbsaarLocalHub:
             auth=auth, headers=headers, timeout=60,
         )
         time.sleep(2)
+        # The web UI posts the restart to success_en.html (captured from a
+        # real browser session). Posting it to do_cmd_en.html returns 200
+        # but the saved settings don't survive the reboot.
         requests.post(
-            f"{self._datalogger_url}/do_cmd_en.html",
+            f"{self._datalogger_url}/success_en.html",
             data={"HF_PROCESS_CMD": "RESTART"},
-            auth=auth, headers=headers, timeout=60,
+            auth=auth,
+            headers={
+                **headers,
+                "Referer": f"{self._datalogger_url}/do_cmd_en.html",
+            },
+            timeout=60,
         )
 
     def _detect_listener_ip(self) -> str | None:
