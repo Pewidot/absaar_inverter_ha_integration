@@ -5,8 +5,9 @@ from datetime import timedelta
 import homeassistant.util.dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_PORT, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -62,6 +63,16 @@ _DATA_TIME_KEYS = (
 )
 
 
+def _local_option(entry: ConfigEntry, key: str, default):
+    """Read a local-mode setting; options (reconfigurable) win over data."""
+    return entry.options.get(key, entry.data.get(key, default))
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options or data change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Absaar Inverter from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -75,19 +86,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry.entry_id,
             port=entry.data.get(CONF_PORT, DEFAULT_PORT),
             serial=entry.data.get(CONF_SERIAL, ""),
-            poll_delay=entry.data.get(CONF_POLL_DELAY, DEFAULT_POLL_DELAY),
-            datalogger_url=entry.data.get(CONF_DATALOGGER_URL, ""),
-            datalogger_username=entry.data.get(
-                CONF_DATALOGGER_USERNAME, DEFAULT_DATALOGGER_USERNAME
+            poll_delay=_local_option(entry, CONF_POLL_DELAY, DEFAULT_POLL_DELAY),
+            datalogger_url=_local_option(entry, CONF_DATALOGGER_URL, ""),
+            datalogger_username=_local_option(
+                entry, CONF_DATALOGGER_USERNAME, DEFAULT_DATALOGGER_USERNAME
             ),
-            datalogger_password=entry.data.get(
-                CONF_DATALOGGER_PASSWORD, DEFAULT_DATALOGGER_PASSWORD
+            datalogger_password=_local_option(
+                entry, CONF_DATALOGGER_PASSWORD, DEFAULT_DATALOGGER_PASSWORD
             ),
-            listener_ip=entry.data.get(CONF_LISTENER_IP, ""),
-            ip_check_interval=entry.data.get(
-                CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL
+            listener_ip=_local_option(entry, CONF_LISTENER_IP, ""),
+            ip_check_interval=_local_option(
+                entry, CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL
             ),
         )
+
+        @callback
+        def _serial_learned(serial: str) -> None:
+            """Re-anchor unique IDs to the inverter serial once it is known.
+
+            Entities start out keyed to the config entry ID. As soon as the
+            hardware serial is known, migrate the registry and persist the
+            serial, so removing and re-adding the entry later reuses the same
+            entities (and keeps their long-term statistics).
+            """
+            stored = (entry.data.get(CONF_SERIAL) or "").strip()
+            if serial == stored:
+                return
+            old_base = stored or entry.entry_id
+            registry = er.async_get(hass)
+            for entity in er.async_entries_for_config_entry(
+                registry, entry.entry_id
+            ):
+                if entity.unique_id.startswith(f"{old_base}_"):
+                    registry.async_update_entity(
+                        entity.entity_id,
+                        new_unique_id=f"{serial}{entity.unique_id[len(old_base):]}",
+                    )
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_SERIAL: serial}
+            )
+
+        hub.on_serial = _serial_learned
+
         try:
             await hub.async_start()
         except OSError as err:
@@ -96,6 +136,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ) from err
 
         hass.data[DOMAIN][entry.entry_id] = {"hub": hub}
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     else:
         username = entry.data[CONF_USERNAME]
         password = entry.data[CONF_PASSWORD]

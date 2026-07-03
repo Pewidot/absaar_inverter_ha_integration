@@ -13,7 +13,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_SERIAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -224,10 +224,16 @@ def _setup_local_entities(
     hub, config_entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Create the entities for a local (direct TCP) connection."""
+    # Anchor unique IDs to the inverter serial when known, so a re-created
+    # entry reuses the same entities. Falls back to the entry ID until the
+    # serial has been learned (it is then migrated automatically).
+    id_base = (config_entry.data.get(CONF_SERIAL) or "").strip() or config_entry.entry_id
+
     entities = [
         AbsaarLocalSensor(
             hub,
             config_entry,
+            id_base,
             key,
             name,
             unit,
@@ -240,6 +246,7 @@ def _setup_local_entities(
         AbsaarLocalEnergySensor(
             hub,
             config_entry,
+            id_base,
             "total_energy",
             "Total Energy",
             "kWh",
@@ -247,7 +254,7 @@ def _setup_local_entities(
             SensorStateClass.TOTAL_INCREASING,
         )
     )
-    entities.append(AbsaarLocalStatusSensor(hub, config_entry))
+    entities.append(AbsaarLocalStatusSensor(hub, config_entry, id_base))
     async_add_entities(entities)
 
 
@@ -261,6 +268,7 @@ class AbsaarLocalSensor(SensorEntity):
         self,
         hub,
         config_entry: ConfigEntry,
+        id_base: str,
         key: str,
         name: str,
         unit: str,
@@ -272,7 +280,7 @@ class AbsaarLocalSensor(SensorEntity):
         self._entry = config_entry
         self._key = key
         self._attr_name = name
-        self._attr_unique_id = f"{config_entry.entry_id}_{key}"
+        self._attr_unique_id = f"{id_base}_{key}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_state_class = state_class
@@ -351,12 +359,12 @@ class AbsaarLocalStatusSensor(SensorEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
 
-    def __init__(self, hub, config_entry: ConfigEntry):
+    def __init__(self, hub, config_entry: ConfigEntry, id_base: str):
         """Initialize the sensor."""
         self._hub = hub
         self._entry = config_entry
         self._attr_name = "Status"
-        self._attr_unique_id = f"{config_entry.entry_id}_status"
+        self._attr_unique_id = f"{id_base}_status"
 
     async def async_added_to_hass(self):
         """Subscribe to hub updates."""

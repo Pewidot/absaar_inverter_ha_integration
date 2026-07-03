@@ -7,7 +7,7 @@ import urllib3
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_PORT, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
@@ -106,6 +106,12 @@ class AbsaarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry) -> "AbsaarOptionsFlow":
+        """Return the options flow handler."""
+        return AbsaarOptionsFlow(config_entry)
+
     async def async_step_user(self, user_input=None) -> FlowResult:
         """Let the user pick between cloud and local connection."""
         return self.async_show_menu(
@@ -171,3 +177,65 @@ class AbsaarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=STEP_LOCAL_DATA_SCHEMA,
             errors=errors,
         )
+
+
+class AbsaarOptionsFlow(config_entries.OptionsFlow):
+    """Adjust local-connection settings without re-creating the entry.
+
+    Needed in practice because the datalogger's IP can change (DHCP) —
+    re-creating the entry would orphan the entities' statistics.
+    """
+
+    def __init__(self, config_entry) -> None:
+        """Initialize the options flow."""
+        self._entry = config_entry
+
+    async def async_step_init(self, user_input=None) -> FlowResult:
+        """Show and store the adjustable local settings."""
+        if (
+            self._entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_CLOUD)
+            != CONNECTION_TYPE_LOCAL
+        ):
+            return self.async_abort(reason="cloud_has_no_options")
+
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        def current(key, default):
+            return self._entry.options.get(key, self._entry.data.get(key, default))
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_DATALOGGER_URL,
+                    default=current(CONF_DATALOGGER_URL, ""),
+                ): str,
+                vol.Optional(
+                    CONF_DATALOGGER_USERNAME,
+                    default=current(
+                        CONF_DATALOGGER_USERNAME, DEFAULT_DATALOGGER_USERNAME
+                    ),
+                ): str,
+                vol.Optional(
+                    CONF_DATALOGGER_PASSWORD,
+                    default=current(
+                        CONF_DATALOGGER_PASSWORD, DEFAULT_DATALOGGER_PASSWORD
+                    ),
+                ): str,
+                vol.Optional(
+                    CONF_LISTENER_IP,
+                    default=current(CONF_LISTENER_IP, ""),
+                ): str,
+                vol.Optional(
+                    CONF_POLL_DELAY,
+                    default=current(CONF_POLL_DELAY, DEFAULT_POLL_DELAY),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                vol.Optional(
+                    CONF_IP_CHECK_INTERVAL,
+                    default=current(
+                        CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

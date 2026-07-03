@@ -73,6 +73,8 @@ All other fields have sensible defaults. The inverter serial is auto-detected fr
 
 Notes on local mode:
 - The inverter is unpowered at night, so its sensors show *unavailable* until sunrise. The lifetime total keeps its last value, and the Energy Dashboard derives daily production from it — no daily counter from the cloud is needed (which also avoids the cloud's stale morning values).
+- **Give the datalogger a static DHCP reservation in your router.** Its IP changes on reboot otherwise, and the automatic IP-keeper then can't reach it anymore. If it does change, use **Configure** on the integration entry to update the datalogger web address — no need to remove and re-add the entry.
+- Entities are anchored to the inverter's serial number once it has connected, so even a re-created entry reuses the same entities and keeps their long-term statistics.
 - Local mode has been tested with the GT800TL. Other models using the same datalogger protocol may work; battery-system metrics are currently cloud-only.
 - Cloud and local entries can exist side by side if you want to compare.
 

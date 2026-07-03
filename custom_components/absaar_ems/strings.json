@@ -41,5 +41,24 @@
     "abort": {
       "already_configured": "This connection is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Absaar Local Settings",
+        "description": "Adjust the local connection without re-creating the entry (e.g. when the datalogger got a new IP).",
+        "data": {
+          "datalogger_url": "Datalogger web address (e.g. http://192.168.1.50)",
+          "datalogger_username": "Datalogger web username",
+          "datalogger_password": "Datalogger web password",
+          "listener_ip": "Home Assistant IP for the datalogger (optional, auto-detected)",
+          "poll_delay": "Seconds between data queries",
+          "ip_check_interval": "Seconds between datalogger IP checks"
+        }
+      }
+    },
+    "abort": {
+      "cloud_has_no_options": "Cloud connections have no adjustable settings."
+    }
   }
 }
