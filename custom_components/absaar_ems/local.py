@@ -105,6 +105,11 @@ class AbsaarLocalHub:
         self._offline_timer = None
         self._check_failures = 0
         self._verified_target: str | None = None
+        # Set by __init__: called (in the event loop) when the inverter
+        # reports a serial we haven't seen yet, so entity unique IDs can be
+        # anchored to the hardware instead of the config entry.
+        self.on_serial = None
+        self._reported_serial = ""
 
     @property
     def signal(self) -> str:
@@ -204,8 +209,7 @@ class AbsaarLocalHub:
 
             if cmd == 0x01 and subcmd == 0x01 and len(frame) == LOGIN_LEN:
                 reported = frame[8:18].decode("ascii", errors="replace").rstrip("\x00")
-                if reported:
-                    self.serial = reported
+                self._learn_serial(reported)
                 _LOGGER.debug("Login from serial %s, sending query", self.serial)
                 writer.write(self._build_query())
                 await writer.drain()
@@ -223,10 +227,19 @@ class AbsaarLocalHub:
                 )
         return buf
 
+    def _learn_serial(self, serial: str) -> None:
+        """Remember the inverter serial and announce it once."""
+        if not serial:
+            return
+        self.serial = serial
+        if serial != self._reported_serial:
+            self._reported_serial = serial
+            if self.on_serial is not None:
+                self.on_serial(serial)
+
     def _handle_data_frame(self, frame: bytes) -> None:
         serial = frame[8:18].decode("ascii", errors="replace").rstrip("\x00")
-        if serial:
-            self.serial = serial
+        self._learn_serial(serial)
         for offset, (key, divisor) in FIELDS.items():
             self.data[key] = struct.unpack_from(">H", frame, offset)[0] / divisor
         self.data["pv_total_power"] = (
