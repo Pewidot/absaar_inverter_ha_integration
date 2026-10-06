@@ -45,6 +45,14 @@ HTTP_ATTEMPTS = 3
 HTTP_RETRY_WAIT = 10
 OFFLINE_GRACE = 90
 
+# Re-pointing restarts the datalogger. If it shows a foreign destination again
+# afterwards, something else (the inverter's own controller, the vendor app)
+# keeps overwriting the setting, and restarting it on every check would only
+# knock it offline over and over. Double the wait between attempts instead, up
+# to this cap; the attempt counter starts over after twice that long without
+# a re-point (e.g. the one legitimate reset per morning).
+REPOINT_BACKOFF_MAX = 3600
+
 # offset in the DATA frame -> (key, divisor)
 FIELDS = {
     44: ("pv1_voltage", 10),
@@ -105,6 +113,8 @@ class AbsaarLocalHub:
         self._offline_timer = None
         self._check_failures = 0
         self._verified_target: str | None = None
+        self._repoint_count = 0
+        self._last_repoint = 0.0
         # Set by __init__: called (in the event loop) when the inverter
         # reports a serial we haven't seen yet, so entity unique IDs can be
         # anchored to the hardware instead of the config entry.
@@ -382,6 +392,22 @@ class AbsaarLocalHub:
             return
 
         self._verified_target = None
+        wait = self._repoint_wait()
+        if wait > 0:
+            _LOGGER.debug(
+                "Datalogger points at %s, next re-point attempt in %ss",
+                current, int(wait),
+            )
+            return
+        if self._repoint_count:
+            _LOGGER.warning(
+                "Datalogger points at %s again after %s re-point attempt(s): "
+                "something keeps resetting it, so further attempts are spaced "
+                "out instead of restarting it on every check",
+                current, self._repoint_count,
+            )
+        self._repoint_count += 1
+        self._last_repoint = time.monotonic()
         _LOGGER.warning(
             "Datalogger points at %s, re-pointing to %s and restarting it",
             current, target,
@@ -416,6 +442,21 @@ class AbsaarLocalHub:
             },
             timeout=60,
         )
+
+    def _repoint_wait(self) -> float:
+        """Seconds until the next re-point attempt is allowed (0 = now)."""
+        if not self._repoint_count:
+            return 0
+        since = time.monotonic() - self._last_repoint
+        if since > 2 * REPOINT_BACKOFF_MAX:
+            # Long quiet since the last attempt: a new incident, not a revert.
+            self._repoint_count = 0
+            return 0
+        backoff = min(
+            self._ip_check_interval * 2 ** (self._repoint_count - 1),
+            REPOINT_BACKOFF_MAX,
+        )
+        return max(backoff - since, 0)
 
     def _detect_listener_ip(self) -> str | None:
         """Find the local IP the datalogger can reach us on."""
