@@ -9,8 +9,6 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/Pewidot/absaar_inverter_ha_integration/issues",
-  "requirements": [
-    "requests==2.34.2"
-  ],
+  "requirements": [],
   "version": "2.2.2"
 }

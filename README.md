@@ -4,7 +4,7 @@
 [![Validate](https://github.com/Pewidot/absaar_inverter_ha_integration/actions/workflows/validate.yml/badge.svg)](https://github.com/Pewidot/absaar_inverter_ha_integration/actions/workflows/validate.yml)
 
 [![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Pewidot&repository=absaar_inverter_ha_integration&category=integration)
-[![Add integration](https://my.home-assistant.io/badges/config_flow.svg)](https://my.home-assistant.io/redirect/config_flow/?domain=absaar)
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=absaar)
 
 Home Assistant integration for Absaar inverters, with cloud and local connections.
 
