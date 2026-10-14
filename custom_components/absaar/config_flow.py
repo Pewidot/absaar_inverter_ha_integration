@@ -1,4 +1,5 @@
 """Config flow for Absaar Inverter integration."""
+
 import asyncio
 import logging
 import voluptuous as vol
@@ -65,7 +66,9 @@ STEP_LOCAL_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def validate_credentials(hass: HomeAssistant, username: str, password: str) -> dict:
+async def validate_credentials(
+    hass: HomeAssistant, username: str, password: str
+) -> dict:
     """Validate the user credentials by attempting to login."""
     url = f"{BASE_URL}/dn/userLogin"
     headers = {
@@ -76,7 +79,9 @@ async def validate_credentials(hass: HomeAssistant, username: str, password: str
 
     try:
         response = await hass.async_add_executor_job(
-            lambda: requests.post(url, headers=headers, json=payload, verify=False, timeout=10)
+            lambda: requests.post(
+                url, headers=headers, json=payload, verify=False, timeout=10
+            )
         )
         data = response.json()
 
@@ -232,9 +237,7 @@ class AbsaarOptionsFlow(config_entries.OptionsFlow):
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
                 vol.Optional(
                     CONF_IP_CHECK_INTERVAL,
-                    default=current(
-                        CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL
-                    ),
+                    default=current(CONF_IP_CHECK_INTERVAL, DEFAULT_IP_CHECK_INTERVAL),
                 ): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
             }
         )

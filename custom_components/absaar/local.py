@@ -12,6 +12,7 @@ sends a LOGIN frame (19 bytes) on connect; we answer with a query frame and it
 replies with a 164 byte DATA frame containing the measurements at fixed
 offsets. We re-query every poll_delay seconds.
 """
+
 import asyncio
 import logging
 import re
@@ -184,9 +185,7 @@ class AbsaarLocalHub:
                     if not proactive_sent:
                         proactive_sent = True
                         timeout = data_timeout
-                        _LOGGER.debug(
-                            "No login from %s, querying proactively", peer
-                        )
+                        _LOGGER.debug("No login from %s, querying proactively", peer)
                         writer.write(self._build_query())
                         await writer.drain()
                         continue
@@ -208,9 +207,7 @@ class AbsaarLocalHub:
                 self._schedule_offline()
             writer.close()
 
-    async def _process_buffer(
-        self, buf: bytes, writer: asyncio.StreamWriter
-    ) -> bytes:
+    async def _process_buffer(self, buf: bytes, writer: asyncio.StreamWriter) -> bytes:
         """Extract and handle all complete frames in the buffer."""
         while len(buf) >= 6:
             if buf[:2] != MAGIC:
@@ -247,7 +244,9 @@ class AbsaarLocalHub:
             else:
                 _LOGGER.debug(
                     "Unknown frame (%s bytes, cmd=%02X sub=%02X)",
-                    len(frame), cmd, subcmd,
+                    len(frame),
+                    cmd,
+                    subcmd,
                 )
         return buf
 
@@ -266,8 +265,8 @@ class AbsaarLocalHub:
         self._learn_serial(serial)
         for offset, (key, divisor) in FIELDS.items():
             self.data[key] = struct.unpack_from(">H", frame, offset)[0] / divisor
-        self.data["pv_total_power"] = (
-            self.data.get("pv1_power", 0) + self.data.get("pv2_power", 0)
+        self.data["pv_total_power"] = self.data.get("pv1_power", 0) + self.data.get(
+            "pv2_power", 0
         )
         self.last_seen = dt_util.utcnow()
         self._cancel_offline_timer()
@@ -276,7 +275,14 @@ class AbsaarLocalHub:
 
     def _build_query(self) -> bytes:
         serial_bytes = self.serial.encode("ascii")[:10].ljust(10, b"\x00")
-        return MAGIC + b"\x00\x01" + b"\x00\x1c" + b"\x01\x02" + serial_bytes + QUERY_SUFFIX
+        return (
+            MAGIC
+            + b"\x00\x01"
+            + b"\x00\x1c"
+            + b"\x01\x02"
+            + serial_bytes
+            + QUERY_SUFFIX
+        )
 
     @callback
     def _set_online(self, online: bool) -> None:
@@ -328,7 +334,8 @@ class AbsaarLocalHub:
                     if self._check_failures == 1 or self._check_failures % 10 == 0:
                         _LOGGER.warning(
                             "Datalogger IP check failed (%s in a row): %s",
-                            self._check_failures, err,
+                            self._check_failures,
+                            err,
                         )
                     else:
                         _LOGGER.debug("Datalogger IP check failed: %s", err)
@@ -351,7 +358,9 @@ class AbsaarLocalHub:
                 last_err = err
                 _LOGGER.debug(
                     "Settings page attempt %s/%s failed: %s",
-                    attempt, HTTP_ATTEMPTS, err,
+                    attempt,
+                    HTTP_ATTEMPTS,
+                    err,
                 )
                 if attempt < HTTP_ATTEMPTS:
                     time.sleep(HTTP_RETRY_WAIT)
@@ -396,7 +405,8 @@ class AbsaarLocalHub:
         if wait > 0:
             _LOGGER.debug(
                 "Datalogger points at %s, next re-point attempt in %ss",
-                current, int(wait),
+                current,
+                int(wait),
             )
             return
         if self._repoint_count:
@@ -404,13 +414,15 @@ class AbsaarLocalHub:
                 "Datalogger points at %s again after %s re-point attempt(s): "
                 "something keeps resetting it, so further attempts are spaced "
                 "out instead of restarting it on every check",
-                current, self._repoint_count,
+                current,
+                self._repoint_count,
             )
         self._repoint_count += 1
         self._last_repoint = time.monotonic()
         _LOGGER.warning(
             "Datalogger points at %s, re-pointing to %s and restarting it",
-            current, target,
+            current,
+            target,
         )
         headers = {
             "Referer": f"{self._datalogger_url}/port_en.html",
@@ -426,7 +438,9 @@ class AbsaarLocalHub:
                 "net_setting_ip": target,
                 "net_setting_to": "300",
             },
-            auth=auth, headers=headers, timeout=60,
+            auth=auth,
+            headers=headers,
+            timeout=60,
         )
         time.sleep(2)
         # The web UI posts the restart to success_en.html (captured from a

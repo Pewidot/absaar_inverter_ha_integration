@@ -1,8 +1,4 @@
 {
-  "name": "Absaar Inverter Integration",
-  "hacs": "1.6.0",
-  "domains": ["absaar"],
-  "homeassistant": "2023.1.0",
-  "iot_class": "cloud_polling",
-  "render_readme": true
+  "name": "Absaar Inverter",
+  "homeassistant": "2023.1.0"
 }
