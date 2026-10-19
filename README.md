@@ -26,7 +26,16 @@ Tested with Home Assistant 2026.10.1.
 
 Manual installation: copy `custom_components/absaar` into your Home Assistant `custom_components` directory, then follow steps 2–4. Setup is through the UI; YAML configuration is not supported.
 
-**Upgrading from 2.2.1 or earlier:** the integration folder is now `custom_components/absaar`, matching the existing integration domain. After installing the update, remove any leftover `custom_components/absaar_ems` folder and restart. Keep your existing integration entries; their domain and entity unique IDs have not changed.
+### Updating from 2.2.1 or earlier
+
+The repository folder changed from `custom_components/absaar_ems` to `custom_components/absaar` in 2.2.2. HACS can retain the old download path until Home Assistant restarts.
+
+1. Restart Home Assistant **before** downloading the update.
+2. Download the latest release in HACS, then restart Home Assistant again.
+
+If HACS reports a missing `manifest.json` or **No content to download**, follow the same steps, even if you already uninstalled the integration. Refreshing the browser or uninstalling the integration does not reset HACS's in-memory download path.
+
+Keep your existing Home Assistant integration entries; the domain and entity unique IDs have not changed. If you previously installed manually, remove any leftover `custom_components/absaar_ems` folder after installing the update.
 
 ## Cloud setup
 
