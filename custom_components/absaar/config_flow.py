@@ -4,7 +4,6 @@ import asyncio
 import logging
 import voluptuous as vol
 import requests
-import urllib3
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_PORT, CONF_USERNAME
@@ -30,8 +29,6 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
-
-urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,9 +76,7 @@ async def validate_credentials(
 
     try:
         response = await hass.async_add_executor_job(
-            lambda: requests.post(
-                url, headers=headers, json=payload, verify=False, timeout=10
-            )
+            lambda: requests.post(url, headers=headers, json=payload, timeout=10)
         )
         data = response.json()
 

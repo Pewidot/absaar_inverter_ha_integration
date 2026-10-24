@@ -2,11 +2,8 @@
 
 import logging
 import requests
-import urllib3
 
 from .const import BASE_URL
-
-urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,9 +28,7 @@ class AbsaarAPI:
         payload = {"username": self.username, "password": self.password}
 
         try:
-            response = requests.post(
-                url, headers=headers, json=payload, verify=False, timeout=10
-            )
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
             data = response.json()
 
             if response.status_code == 200 and "token" in data:
@@ -58,9 +53,7 @@ class AbsaarAPI:
         kwargs = {"json": payload} if use_json else {"data": payload}
 
         try:
-            response = requests.post(
-                url, headers=headers, verify=False, timeout=10, **kwargs
-            )
+            response = requests.post(url, headers=headers, timeout=10, **kwargs)
             data = response.json()
 
             if response.status_code == 401 or data.get("code") == 401:
@@ -69,9 +62,7 @@ class AbsaarAPI:
                     _LOGGER.error("Re-authentication failed")
                     return None
                 headers = {"Authorization": str(self.token)}
-                response = requests.post(
-                    url, headers=headers, verify=False, timeout=10, **kwargs
-                )
+                response = requests.post(url, headers=headers, timeout=10, **kwargs)
                 data = response.json()
 
             if response.status_code == 200 and data.get("code") == 200:
