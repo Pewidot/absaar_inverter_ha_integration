@@ -2,16 +2,18 @@
 
 import asyncio
 import logging
+from collections.abc import Mapping
+from typing import Any
+
 import voluptuous as vol
-import requests
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 
+from .api import AbsaarAPI, AbsaarAuthError, AbsaarConnectionError
 from .const import (
-    BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DATALOGGER_PASSWORD,
     CONF_DATALOGGER_URL,
@@ -63,31 +65,34 @@ STEP_LOCAL_DATA_SCHEMA = vol.Schema(
 )
 
 
+STEP_REAUTH_DATA_SCHEMA = vol.Schema({vol.Required(CONF_PASSWORD): str})
+
+
 async def validate_credentials(
     hass: HomeAssistant, username: str, password: str
 ) -> dict:
-    """Validate the user credentials by attempting to login."""
-    url = f"{BASE_URL}/dn/userLogin"
-    headers = {
-        "User-Agent": "okhttp-okgo/jeasonlzy",
-        "Content-Type": "application/json;charset=utf-8",
-    }
-    payload = {"username": username, "password": password}
+    """Validate the user credentials by attempting to login.
 
+    Raises AbsaarAuthError for rejected credentials and AbsaarConnectionError
+    when the cloud cannot be reached.
+    """
+    api = AbsaarAPI(username, password)
+    await hass.async_add_executor_job(api.authenticate)
+    return {"token": api.token, "user_id": api.user_id}
+
+
+async def _credential_errors(hass: HomeAssistant, username: str, password: str) -> dict:
+    """Try the credentials and return form errors (empty when they work)."""
     try:
-        response = await hass.async_add_executor_job(
-            lambda: requests.post(url, headers=headers, json=payload, timeout=10)
-        )
-        data = response.json()
-
-        if response.status_code == 200 and "token" in data:
-            return {"token": data["token"], "user_id": data["userId"]}
-        else:
-            _LOGGER.error("Login failed: %s", data)
-            return None
-    except requests.exceptions.RequestException as e:
-        _LOGGER.error("Error during login: %s", e)
-        return None
+        await validate_credentials(hass, username, password)
+    except AbsaarAuthError:
+        return {"base": "invalid_auth"}
+    except AbsaarConnectionError:
+        return {"base": "cannot_connect"}
+    except Exception:
+        _LOGGER.exception("Unexpected error while validating Absaar credentials")
+        return {"base": "unknown"}
+    return {}
 
 
 async def _port_is_free(port: int) -> bool:
@@ -124,13 +129,13 @@ class AbsaarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            result = await validate_credentials(
+            errors = await _credential_errors(
                 self.hass,
                 user_input[CONF_USERNAME],
                 user_input[CONF_PASSWORD],
             )
 
-            if result:
+            if not errors:
                 # Same unique ID as pre-2.0.0 entries so upgrades stay compatible
                 await self.async_set_unique_id(user_input[CONF_USERNAME])
                 self._abort_if_unique_id_configured()
@@ -142,12 +147,35 @@ class AbsaarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_CONNECTION_TYPE: CONNECTION_TYPE_CLOUD,
                     },
                 )
-            else:
-                errors["base"] = "invalid_auth"
 
         return self.async_show_form(
             step_id="cloud",
             data_schema=STEP_CLOUD_DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """Start reauth after the cloud rejected the stored password."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None) -> FlowResult:
+        """Ask for a new password for the same cloud username."""
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        username = entry.data[CONF_USERNAME]
+        errors = {}
+
+        if user_input is not None:
+            password = user_input[CONF_PASSWORD]
+            errors = await _credential_errors(self.hass, username, password)
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, data={**entry.data, CONF_PASSWORD: password}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_REAUTH_DATA_SCHEMA,
+            description_placeholders={"username": username},
             errors=errors,
         )
 

@@ -41,6 +41,8 @@ Keep your existing Home Assistant integration entries; the domain and entity uni
 
 Add your inverter in the Absaar EMS or MINI-EMS app first. In Home Assistant, enter your app **username (not email)** and password. Stations and inverters are discovered automatically.
 
+If you change the app password, the integration stops polling and Home Assistant asks you to sign in again under **Settings → Devices & services**. If the cloud is only unreachable, it keeps retrying on its own.
+
 ## Local setup
 
 Local mode has been tested with the **GT800TL**. Other models using the same datalogger protocol are unverified.

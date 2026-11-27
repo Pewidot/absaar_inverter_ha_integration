@@ -8,6 +8,18 @@ from .const import BASE_URL
 _LOGGER = logging.getLogger(__name__)
 
 
+class AbsaarError(Exception):
+    """Base error for the Absaar cloud API."""
+
+
+class AbsaarAuthError(AbsaarError):
+    """The cloud answered, but rejected the username or password."""
+
+
+class AbsaarConnectionError(AbsaarError):
+    """The cloud could not be reached or sent an unusable response."""
+
+
 class AbsaarAPI:
     """API client for Absaar EMS."""
 
@@ -18,8 +30,13 @@ class AbsaarAPI:
         self.token = None
         self.user_id = None
 
-    def authenticate(self) -> bool:
-        """Authenticate with the API and obtain token."""
+    def authenticate(self) -> None:
+        """Log in and store the session token.
+
+        Raises AbsaarAuthError when the server rejects the credentials (HTTP
+        401/403, or an answer without a token) and AbsaarConnectionError for
+        network errors, other error status codes and malformed responses.
+        """
         url = f"{BASE_URL}/dn/userLogin"
         headers = {
             "User-Agent": "okhttp-okgo/jeasonlzy",
@@ -29,25 +46,48 @@ class AbsaarAPI:
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=10)
-            data = response.json()
+        except requests.exceptions.RequestException as err:
+            raise AbsaarConnectionError(
+                f"Cannot reach the Absaar cloud: {err}"
+            ) from err
 
-            if response.status_code == 200 and "token" in data:
-                self.token = data["token"]
-                self.user_id = data["userId"]
-                _LOGGER.debug("Successfully authenticated with Absaar API")
-                return True
-            else:
-                _LOGGER.error("Authentication failed: %s", data)
-                return False
-        except requests.exceptions.RequestException as e:
-            _LOGGER.error("Error during authentication: %s", e)
-            return False
+        if response.status_code in (401, 403):
+            raise AbsaarAuthError(
+                f"Absaar cloud rejected the login (HTTP {response.status_code})"
+            )
+        if response.status_code != 200:
+            raise AbsaarConnectionError(
+                f"Absaar cloud login returned HTTP {response.status_code}"
+            )
+
+        try:
+            data = response.json()
+        except ValueError as err:
+            raise AbsaarConnectionError(
+                "Absaar cloud login returned an invalid response"
+            ) from err
+        if not isinstance(data, dict):
+            raise AbsaarConnectionError(
+                "Absaar cloud login returned an invalid response"
+            )
+
+        if not data.get("token"):
+            raise AbsaarAuthError(
+                f"Absaar cloud rejected the login: {data.get('msg') or 'no token'}"
+            )
+
+        self.token = data["token"]
+        self.user_id = data.get("userId")
+        _LOGGER.debug("Successfully authenticated with Absaar API")
 
     def _request(self, url: str, payload: dict, use_json: bool = True) -> dict | None:
-        """Make an authenticated API request, re-authenticating on 401."""
+        """Make an authenticated API request, re-authenticating on 401.
+
+        Login failures propagate as AbsaarAuthError / AbsaarConnectionError;
+        a failed data request is logged and returns None.
+        """
         if not self.token:
-            if not self.authenticate():
-                return None
+            self.authenticate()
 
         headers = {"Authorization": str(self.token)}
         kwargs = {"json": payload} if use_json else {"data": payload}
@@ -58,9 +98,7 @@ class AbsaarAPI:
 
             if response.status_code == 401 or data.get("code") == 401:
                 _LOGGER.debug("Token expired, re-authenticating")
-                if not self.authenticate():
-                    _LOGGER.error("Re-authentication failed")
-                    return None
+                self.authenticate()
                 headers = {"Authorization": str(self.token)}
                 response = requests.post(url, headers=headers, timeout=10, **kwargs)
                 data = response.json()
@@ -94,16 +132,14 @@ class AbsaarAPI:
 
     def fetch_all_data(self) -> dict:
         """Fetch all data from the API with fresh authentication."""
-        # Re-authenticate every fetch cycle to ensure fresh token
-        if not self.authenticate():
-            _LOGGER.error("Authentication failed during data fetch")
-            raise ConnectionError("Failed to authenticate with Absaar API")
+        # Re-authenticate every fetch cycle to ensure fresh token. A rejected
+        # login raises AbsaarAuthError, which stops polling and starts reauth.
+        self.authenticate()
 
         stations_data = self.get_stations()
 
         if not stations_data or "rows" not in stations_data:
-            _LOGGER.error("No stations found")
-            raise ConnectionError("No station data received from Absaar API")
+            raise AbsaarConnectionError("No station data received from Absaar API")
 
         all_data = {"stations": []}
 

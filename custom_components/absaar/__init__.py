@@ -7,7 +7,7 @@ import homeassistant.util.dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -29,7 +29,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
-from .api import AbsaarAPI
+from .api import AbsaarAPI, AbsaarAuthError, AbsaarConnectionError
 from .local import AbsaarLocalHub
 
 _LOGGER = logging.getLogger(__name__)
@@ -140,13 +140,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         username = entry.data[CONF_USERNAME]
         password = entry.data[CONF_PASSWORD]
 
-        # Create API instance
         api = AbsaarAPI(username, password)
 
-        # Authenticate
-        if not await hass.async_add_executor_job(api.authenticate):
-            _LOGGER.error("Failed to authenticate with Absaar API")
-            return False
+        # Rejected credentials start a reauth flow instead of retrying the
+        # stored password; an unreachable cloud lets Home Assistant retry.
+        try:
+            await hass.async_add_executor_job(api.authenticate)
+        except AbsaarAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except AbsaarConnectionError as err:
+            raise ConfigEntryNotReady(str(err)) from err
 
         # Create coordinator
         coordinator = AbsaarDataUpdateCoordinator(hass, api)
@@ -195,6 +198,9 @@ class AbsaarDataUpdateCoordinator(DataUpdateCoordinator):
         """Fetch data from API."""
         try:
             data = await self.hass.async_add_executor_job(self.api.fetch_all_data)
+        except AbsaarAuthError as err:
+            # Stops polling and asks the user to sign in again.
+            raise ConfigEntryAuthFailed(str(err)) from err
         except Exception as err:
             raise UpdateFailed(f"Error communicating with API: {err}") from err
         return self._sanitize_daily_generation(data)

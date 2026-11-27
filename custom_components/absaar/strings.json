@@ -17,6 +17,13 @@
           "password": "Password"
         }
       },
+      "reauth_confirm": {
+        "title": "Absaar Cloud sign-in",
+        "description": "The Absaar EMS cloud rejected the password for {username}. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
+      },
       "local": {
         "title": "Absaar Local",
         "description": "Home Assistant will listen for the inverter's datalogger on the given TCP port. Optionally provide the datalogger's web address so the integration can keep it pointed at Home Assistant automatically.",
@@ -39,7 +46,8 @@
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
-      "already_configured": "This connection is already configured."
+      "already_configured": "This connection is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "options": {

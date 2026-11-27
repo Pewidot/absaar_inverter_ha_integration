@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
-from custom_components.absaar.api import AbsaarAPI
+from custom_components.absaar.api import AbsaarAPI, AbsaarConnectionError
 from custom_components.absaar.config_flow import validate_credentials
 from custom_components.absaar.const import BASE_URL
 
@@ -40,7 +40,8 @@ def test_login_and_data_requests_verify_tls(send):
         response({"code": 200, "rows": []}),
     ]
     api = AbsaarAPI("test-user", "test-password")
-    assert api.authenticate()
+    api.authenticate()
+    assert api.token == "test-token"
     assert api.get_stations() == {"code": 200, "rows": []}
     assert api.get_collectors("test-station") == {"code": 200, "rows": []}
     assert api.get_inverter_data("test-station", "test-inverter") == {
@@ -85,7 +86,8 @@ def test_certificate_error_never_retries_without_verification(send, stage):
     api = AbsaarAPI("test-user", "test-password")
     if stage == "login":
         send.side_effect = error
-        assert not api.authenticate()
+        with pytest.raises(AbsaarConnectionError):
+            api.authenticate()
         assert api.token is None
     else:
         api.token = "test-token"
@@ -106,6 +108,7 @@ def test_certificate_error_never_retries_without_verification(send, stage):
 
 async def test_setup_rejects_certificate_error(hass, send):
     send.side_effect = requests.exceptions.SSLError("certificate verify failed")
-    assert await validate_credentials(hass, "test-user", "test-password") is None
+    with pytest.raises(AbsaarConnectionError):
+        await validate_credentials(hass, "test-user", "test-password")
     assert send.call_count == 1
     assert_verified(send)

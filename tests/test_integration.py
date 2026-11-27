@@ -10,6 +10,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.loader import async_get_integration
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.absaar.api import AbsaarAuthError, AbsaarConnectionError
 from custom_components.absaar.const import DOMAIN
 
 CLOUD_DATA = {
@@ -53,12 +54,22 @@ async def test_connection_menu(hass, mode):
     assert result["step_id"] == mode
 
 
-@pytest.mark.parametrize("valid", [True, False])
-async def test_cloud_credentials_flow(hass, valid):
+@pytest.mark.parametrize(
+    ("side_effect", "error"),
+    [
+        (None, None),
+        (AbsaarAuthError("rejected"), "invalid_auth"),
+        (AbsaarConnectionError("offline"), "cannot_connect"),
+        (RuntimeError("boom"), "unknown"),
+    ],
+)
+async def test_cloud_credentials_flow(hass, side_effect, error):
     with (
         patch(
             "custom_components.absaar.config_flow.validate_credentials",
-            new=AsyncMock(return_value={"user_id": "test-user"} if valid else None),
+            new=AsyncMock(
+                return_value={"user_id": "test-user"}, side_effect=side_effect
+            ),
         ),
         patch("custom_components.absaar.async_setup_entry", return_value=True),
     ):
@@ -72,14 +83,14 @@ async def test_cloud_credentials_flow(hass, valid):
             result["flow_id"], {"username": "test-user", "password": "test-password"}
         )
         await hass.async_block_till_done()
-    if valid:
+    if error is None:
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert result["result"].domain == DOMAIN
         assert result["result"].unique_id == "test-user"
         assert result["data"]["connection_type"] == "cloud"
     else:
         assert result["type"] is FlowResultType.FORM
-        assert result["errors"] == {"base": "invalid_auth"}
+        assert result["errors"] == {"base": error}
 
 
 @pytest.mark.parametrize("port_available", [True, False])
